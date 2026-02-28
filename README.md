@@ -83,12 +83,14 @@ pip install -r requirements.txt
 ### Step 1：下载模型权重
 
 ```bash
+# 将 <YOUR_HF_TOKEN> 替换为你的 token (hf_T...)
+
 # 下载 Gemma 3 1B 基座模型 (~2GB)
-huggingface-cli download google/gemma-3-1b-pt \
+python -m huggingface_hub.commands.huggingface_cli download google/gemma-3-1b-pt \
     --local-dir model/gemma-3-1b-pt --token <YOUR_HF_TOKEN>
 
 # 下载 Gemma Scope SAE 权重 (只下需要的层)
-huggingface-cli download google/gemma-scope-2-1b-pt \
+python -m huggingface_hub.commands.huggingface_cli download google/gemma-scope-2-1b-pt \
     --include "resid_post/layer_22/width_65k_l0_medium/*" \
     --local-dir sae/gemma-scope-2-1b-pt --token <YOUR_HF_TOKEN>
 ```
