@@ -117,9 +117,8 @@ def load_sae_weights(
     Gemma Scope 的文件组织结构:
       gemma-scope-2-1b-pt/
       ├── resid_post/          # residual stream SAEs
-      │   └── layer_{L}/
-      │       └── width_{W}_l0_{L0}/
-      │           └── params.safetensors
+      │   └── layer_{L}_width_{W}_l0_{L0}/
+      │       └── params.safetensors
       └── resid_post_all/      # all-layer SAEs
           └── ...
 
@@ -136,7 +135,7 @@ def load_sae_weights(
     """
     from safetensors.torch import load_file
 
-    relative_path = f"{hook_point}/layer_{layer}/width_{width}_l0_{l0}/params.safetensors"
+    relative_path = f"{hook_point}/layer_{layer}_width_{width}_l0_{l0}/params.safetensors"
 
     if local_dir is not None:
         # 从本地目录加载

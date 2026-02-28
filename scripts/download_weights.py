@@ -34,7 +34,7 @@ def main():
     snapshot_download(
         repo_id="google/gemma-scope-2-1b-pt",
         local_dir="sae/gemma-scope-2-1b-pt",
-        allow_patterns=["resid_post/layer_22/width_65k_l0_medium/*"],
+        allow_patterns=["resid_post/layer_22_width_65k_l0_medium/*"],
         token=args.token,
     )
     print("[OK] sae/gemma-scope-2-1b-pt/\n")
