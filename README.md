@@ -91,17 +91,20 @@ pip install -r requirements.txt
 ### 下载模型权重（放到本地目录）
 
 ```bash
-# 1. 登录 HuggingFace (Gemma 是 Gated Model, 需要先在网页上申请访问权限)
-huggingface-cli login
+# 使用 HuggingFace Token 下载 (Gemma 是 Gated Model, 需要先在网页上接受协议)
+# 将 <YOUR_HF_TOKEN> 替换为你的 token (hf_T...)
 
-# 2. 下载 Gemma 3 1B 基座模型 → model/gemma-3-1b-pt/
-huggingface-cli download google/gemma-3-1b-pt --local-dir model/gemma-3-1b-pt
+# 1. 下载 Gemma 3 1B 基座模型 → model/gemma-3-1b-pt/
+huggingface-cli download google/gemma-3-1b-pt \
+    --local-dir model/gemma-3-1b-pt \
+    --token <YOUR_HF_TOKEN>
 
-# 3. 下载 Gemma Scope SAE 权重 → sae/gemma-scope-2-1b-pt/
+# 2. 下载 Gemma Scope SAE 权重 → sae/gemma-scope-2-1b-pt/
 #    只下载需要的层和宽度 (完整仓库非常大):
 huggingface-cli download google/gemma-scope-2-1b-pt \
     --include "resid_post/layer_22/width_65k_l0_medium/*" \
-    --local-dir sae/gemma-scope-2-1b-pt
+    --local-dir sae/gemma-scope-2-1b-pt \
+    --token <YOUR_HF_TOKEN>
 ```
 
 ### 快速验证
