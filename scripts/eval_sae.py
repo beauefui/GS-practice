@@ -141,6 +141,87 @@ def print_evaluation_report(
     print("\n" + "=" * 60)
 
 
+def save_report(
+    metrics: dict,
+    top_features: dict | None = None,
+    save_dir: str | Path = "sae/checkpoints",
+    source: str = "unknown",
+):
+    """
+    保存评估报告到文件 (Markdown + JSON)
+
+    Args:
+        metrics: 评估指标字典
+        top_features: top-k 特征信息
+        save_dir: 保存目录
+        source: 来源说明 (如 checkpoint 路径或 "pretrained")
+    """
+    import json
+    from datetime import datetime
+
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # ---- 保存 JSON (方便程序读取) ----
+    json_path = save_dir / f"report_{timestamp}.json"
+    report_data = {
+        "timestamp": timestamp,
+        "source": source,
+        "metrics": {k: float(v) for k, v in metrics.items()},
+    }
+    if top_features:
+        report_data["top_features"] = top_features
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, indent=2, ensure_ascii=False)
+
+    # ---- 保存 Markdown (方便人阅读) ----
+    md_path = save_dir / f"report_{timestamp}.md"
+
+    l0 = metrics["l0"]
+    fvu = metrics["fvu"]
+    mse = metrics["mse"]
+    fvu_label = "GOOD" if fvu < 0.1 else "OK" if fvu < 0.5 else "BAD"
+
+    lines = [
+        f"# SAE Evaluation Report",
+        f"",
+        f"- **Time**: {timestamp}",
+        f"- **Source**: {source}",
+        f"",
+        f"## Metrics",
+        f"",
+        f"| Metric | Value | Status |",
+        f"|--------|-------|--------|",
+        f"| L0 (Sparsity) | {l0:.1f} | - |",
+        f"| FVU (Reconstruction) | {fvu:.4f} | {fvu_label} |",
+        f"| MSE | {mse:.6f} | - |",
+    ]
+
+    if top_features:
+        lines += [
+            f"",
+            f"## Top-10 Features",
+            f"",
+            f"| Rank | Feature ID | Activation Freq | Mean Strength |",
+            f"|------|-----------|-----------------|---------------|",
+        ]
+        for i, (idx, freq, strength) in enumerate(zip(
+            top_features["feature_indices"],
+            top_features["activation_freqs"],
+            top_features["mean_activations"],
+        )):
+            lines.append(f"| #{i+1} | {idx} | {freq:.4f} | {strength:.4f} |")
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    print(f"\n[Report] Markdown: {md_path}")
+    print(f"[Report] JSON:     {json_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="评估 SAE")
     parser.add_argument("--checkpoint", type=str, help="训练好的 checkpoint 路径")
@@ -165,7 +246,7 @@ def main():
         metrics = evaluate_on_activations(sae, fake_acts, device)
         top_features = find_top_activating_features(sae, fake_acts, device)
         print_evaluation_report(metrics, top_features)
-
+        save_report(metrics, top_features, save_dir="sae/checkpoints", source="smoke-test")
         print("\n[PASS] Smoke test 通过!")
         return
 
@@ -183,6 +264,7 @@ def main():
         metrics = evaluate_on_activations(sae, fake_acts, device)
         top_features = find_top_activating_features(sae, fake_acts, device)
         print_evaluation_report(metrics, top_features)
+        save_report(metrics, top_features, save_dir="sae/checkpoints", source=args.checkpoint)
         return
 
     # ---- 加载预训练 SAE 评估 ----
