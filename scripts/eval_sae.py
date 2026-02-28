@@ -144,7 +144,7 @@ def print_evaluation_report(
 def save_report(
     metrics: dict,
     top_features: dict | None = None,
-    save_dir: str | Path = "sae/checkpoints",
+    save_dir: str | Path = "reports",
     source: str = "unknown",
 ):
     """
@@ -246,7 +246,7 @@ def main():
         metrics = evaluate_on_activations(sae, fake_acts, device)
         top_features = find_top_activating_features(sae, fake_acts, device)
         print_evaluation_report(metrics, top_features)
-        save_report(metrics, top_features, save_dir="sae/checkpoints", source="smoke-test")
+        save_report(metrics, top_features, save_dir="reports", source="smoke-test")
         print("\n[PASS] Smoke test 通过!")
         return
 
@@ -264,7 +264,7 @@ def main():
         metrics = evaluate_on_activations(sae, fake_acts, device)
         top_features = find_top_activating_features(sae, fake_acts, device)
         print_evaluation_report(metrics, top_features)
-        save_report(metrics, top_features, save_dir="sae/checkpoints", source=args.checkpoint)
+        save_report(metrics, top_features, save_dir="reports", source=args.checkpoint)
         return
 
     # ---- 加载预训练 SAE 评估 ----
