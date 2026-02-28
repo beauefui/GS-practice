@@ -78,8 +78,8 @@ git clone https://github.com/beauefui/GS-practice.git
 cd GS-practice
 
 # 创建 conda 环境
-conda create -n sae python=3.10 -y
-conda activate sae
+conda create -n gs python=3.10 -y
+conda activate gs
 
 # 安装 PyTorch (根据服务器 CUDA 版本选择)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
