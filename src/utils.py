@@ -47,20 +47,24 @@ def get_device() -> torch.device:
 
 
 def load_gemma_model(
-    model_name: str = "google/gemma-3-1b-pt",
+    model_name_or_path: str = "google/gemma-3-1b-pt",
     device: torch.device | str = "auto",
     dtype: torch.dtype = torch.float32,
 ):
     """
     加载 Gemma 基座模型和 tokenizer
 
+    支持两种加载方式:
+      1. 本地路径: model_name_or_path="model/gemma-3-1b-pt" (已下载到本地)
+      2. HuggingFace: model_name_or_path="google/gemma-3-1b-pt" (在线下载)
+
     注意:
       - 使用 base model (pt), 不用 instruction-tuned (it)
       - SAE 是在 base model 的激活值上训练的
-      - 需要先登录 HuggingFace: huggingface-cli login
+      - 在线下载需要先登录 HuggingFace: huggingface-cli login
 
     Args:
-        model_name: HuggingFace 模型名称
+        model_name_or_path: 本地模型目录路径 或 HuggingFace 模型名称
         device: 设备 ("auto" 让 transformers 自动分配)
         dtype: 精度 (float32 / bfloat16)
 
@@ -69,19 +73,24 @@ def load_gemma_model(
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    print(f"[Model] 加载模型: {model_name}")
+    # 判断是本地路径还是 HuggingFace ID
+    local_path = Path(model_name_or_path)
+    if local_path.exists() and local_path.is_dir():
+        print(f"[Model] 从本地加载: {local_path.resolve()}")
+    else:
+        print(f"[Model] 从 HuggingFace 下载: {model_name_or_path}")
     print(f"[Model] 精度: {dtype}")
 
     # 加载模型, 关闭梯度 (我们只需要提取激活值, 不训练基座模型)
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+        str(model_name_or_path),
         torch_dtype=dtype,
         device_map=device,
     )
     model.eval()
 
     # 加载 tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(str(model_name_or_path))
 
     num_layers = len(model.model.layers)
     d_model = model.config.hidden_size
@@ -96,12 +105,17 @@ def load_sae_weights(
     width: str = "65k",
     l0: str = "medium",
     hook_point: str = "resid_post",
+    local_dir: str | None = None,
 ) -> dict[str, torch.Tensor]:
     """
-    从 HuggingFace 下载 Gemma Scope 预训练 SAE 权重
+    加载 Gemma Scope 预训练 SAE 权重
+
+    支持两种加载方式:
+      1. 本地路径: local_dir="sae/gemma-scope-2-1b-pt" (已下载到本地)
+      2. HuggingFace: 自动从 repo_id 下载
 
     Gemma Scope 的文件组织结构:
-      google/gemma-scope-2-1b-pt/
+      gemma-scope-2-1b-pt/
       ├── resid_post/          # residual stream SAEs
       │   └── layer_{L}/
       │       └── width_{W}_l0_{L0}/
@@ -110,23 +124,36 @@ def load_sae_weights(
           └── ...
 
     Args:
-        repo_id: HuggingFace 仓库 ID
+        repo_id: HuggingFace 仓库 ID (仅在线下载时使用)
         layer: 层索引
         width: SAE 宽度 ("16k" / "65k" / "262k" / "1m")
         l0: 目标稀疏度 ("small" / "medium" / "big")
         hook_point: hook 点位 ("resid_post" / "resid_post_all")
+        local_dir: 本地 SAE 权重根目录 (可选, 传入则从本地加载)
 
     Returns:
         权重字典 (w_enc, b_enc, w_dec, b_dec, threshold)
     """
-    from huggingface_hub import hf_hub_download
     from safetensors.torch import load_file
 
-    filename = f"{hook_point}/layer_{layer}/width_{width}_l0_{l0}/params.safetensors"
-    print(f"[SAE Weights] 下载: {repo_id}/{filename}")
+    relative_path = f"{hook_point}/layer_{layer}/width_{width}_l0_{l0}/params.safetensors"
 
-    path = hf_hub_download(repo_id=repo_id, filename=filename)
-    params = load_file(path)
+    if local_dir is not None:
+        # 从本地目录加载
+        local_path = Path(local_dir) / relative_path
+        if not local_path.exists():
+            raise FileNotFoundError(
+                f"SAE 权重文件不存在: {local_path}\n"
+                f"请确认已下载到 {local_dir}/ 目录下"
+            )
+        print(f"[SAE Weights] 从本地加载: {local_path}")
+        params = load_file(str(local_path))
+    else:
+        # 从 HuggingFace 下载
+        from huggingface_hub import hf_hub_download
+        print(f"[SAE Weights] 从 HuggingFace 下载: {repo_id}/{relative_path}")
+        path = hf_hub_download(repo_id=repo_id, filename=relative_path)
+        params = load_file(path)
 
     print(f"[SAE Weights] 加载完成:")
     for k, v in params.items():

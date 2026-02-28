@@ -70,20 +70,46 @@ GS-practice/
 - CUDA 12.x（A800 GPU 训练）
 - ~16GB+ GPU 显存（用于 Gemma 模型 + SAE）
 
-### 安装步骤
+### 安装步骤（服务器端，使用 conda）
 
 ```bash
 # 克隆仓库
 git clone https://github.com/beauefui/GS-practice.git
 cd GS-practice
 
-# 创建虚拟环境（推荐）
-python -m venv .venv
-source .venv/bin/activate   # Linux/Mac
-# .venv\Scripts\activate    # Windows
+# 创建 conda 环境
+conda create -n sae python=3.10 -y
+conda activate sae
 
-# 安装依赖
+# 安装 PyTorch (根据服务器 CUDA 版本选择)
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# 安装其他依赖
 pip install -r requirements.txt
+```
+
+### 下载模型权重（放到本地目录）
+
+```bash
+# 1. 登录 HuggingFace (Gemma 是 Gated Model, 需要先在网页上申请访问权限)
+huggingface-cli login
+
+# 2. 下载 Gemma 3 1B 基座模型 → model/gemma-3-1b-pt/
+huggingface-cli download google/gemma-3-1b-pt --local-dir model/gemma-3-1b-pt
+
+# 3. 下载 Gemma Scope SAE 权重 → sae/gemma-scope-2-1b-pt/
+#    只下载需要的层和宽度 (完整仓库非常大):
+huggingface-cli download google/gemma-scope-2-1b-pt \
+    --include "resid_post/layer_22/width_65k_l0_medium/*" \
+    --local-dir sae/gemma-scope-2-1b-pt
+```
+
+### 快速验证
+
+```bash
+# Smoke test — 不需要 GPU 和模型权重, 用随机数据验证代码流程
+python scripts/train_sae.py --config configs/default.yaml --smoke-test
+python scripts/eval_sae.py --smoke-test
 ```
 
 ## 📦 主要依赖

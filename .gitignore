@@ -22,8 +22,10 @@ env/
 
 # Model weights and cached files (too large for git)
 model/
-sae/*.safetensors
-sae/*.pt
+sae/gemma-scope-*/
+sae/checkpoints/
+*.safetensors
+*.pt
 *.bin
 
 # OS

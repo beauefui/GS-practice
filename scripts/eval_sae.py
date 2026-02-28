@@ -196,6 +196,7 @@ def main():
             layer=config["pretrained_sae"]["layer"],
             width=config["pretrained_sae"]["width"],
             l0=config["pretrained_sae"]["l0"],
+            local_dir=config["pretrained_sae"].get("local_dir"),
         )
         sae = JumpReLUSAE.from_pretrained(params)
         print(f"\n[OK] 加载预训练 SAE: {sae}\n")
