@@ -1,0 +1,212 @@
+"""
+SAE 评估和可视化脚本
+
+用法:
+    # 评估训练好的 SAE
+    python scripts/eval_sae.py --checkpoint sae/checkpoint_final.pt
+
+    # 评估 Gemma Scope 预训练 SAE
+    python scripts/eval_sae.py --pretrained --config configs/default.yaml
+
+    # Smoke test (随机数据)
+    python scripts/eval_sae.py --smoke-test
+"""
+
+import argparse
+import sys
+import yaml
+import torch
+import numpy as np
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.model import JumpReLUSAE
+from src.metrics import compute_all_metrics
+from src.utils import get_device, load_checkpoint
+
+
+def evaluate_on_activations(
+    sae: JumpReLUSAE,
+    activations: torch.Tensor,
+    device: torch.device,
+    batch_size: int = 1024,
+) -> dict[str, float]:
+    """
+    在一组激活值上评估 SAE
+
+    返回聚合的 metrics
+    """
+    sae.eval()
+    sae = sae.to(device)
+
+    all_l0, all_fvu, all_mse = [], [], []
+
+    with torch.no_grad():
+        for i in range(0, len(activations), batch_size):
+            batch = activations[i:i + batch_size].to(device)
+            recon, acts = sae(batch)
+            metrics = compute_all_metrics(batch, recon, acts)
+            all_l0.append(metrics["l0"])
+            all_fvu.append(metrics["fvu"])
+            all_mse.append(metrics["mse"])
+
+    return {
+        "l0": np.mean(all_l0),
+        "fvu": np.mean(all_fvu),
+        "mse": np.mean(all_mse),
+    }
+
+
+def find_top_activating_features(
+    sae: JumpReLUSAE,
+    activations: torch.Tensor,
+    device: torch.device,
+    top_k: int = 10,
+) -> dict:
+    """
+    找出最频繁激活的特征
+
+    Args:
+        sae: SAE 模型
+        activations: 激活值, shape (num_tokens, d_model)
+        top_k: 返回前 k 个特征
+
+    Returns:
+        dict 包含:
+          - feature_indices: top-k 特征的索引
+          - activation_freqs: 对应的激活频率
+          - mean_activations: 对应的平均激活强度
+    """
+    sae.eval()
+    sae = sae.to(device)
+
+    with torch.no_grad():
+        acts = sae.encode(activations.to(device))  # (num_tokens, d_sae)
+
+    # 每个特征的激活频率 (多少比例的 token 激活了这个特征)
+    activation_freqs = (acts > 0).float().mean(dim=0).cpu()  # (d_sae,)
+
+    # 每个特征的平均激活强度 (只看激活了的 token)
+    act_sum = acts.sum(dim=0).cpu()
+    act_count = (acts > 0).float().sum(dim=0).cpu()
+    mean_activations = torch.where(
+        act_count > 0,
+        act_sum / act_count,
+        torch.zeros_like(act_sum),
+    )
+
+    # 找 top-k
+    top_indices = activation_freqs.argsort(descending=True)[:top_k]
+
+    return {
+        "feature_indices": top_indices.tolist(),
+        "activation_freqs": activation_freqs[top_indices].tolist(),
+        "mean_activations": mean_activations[top_indices].tolist(),
+    }
+
+
+def print_evaluation_report(
+    metrics: dict,
+    top_features: dict | None = None,
+):
+    """打印评估报告"""
+    print("\n" + "=" * 60)
+    print("[REPORT] SAE 评估报告")
+    print("=" * 60)
+
+    print(f"\n{'指标':<20} {'值':<15} {'解读'}")
+    print("-" * 60)
+
+    l0 = metrics["l0"]
+    fvu = metrics["fvu"]
+    mse = metrics["mse"]
+
+    print(f"{'L0 (稀疏度)':<20} {l0:<15.1f} 平均激活特征数")
+    print(f"{'FVU (重建质量)':<20} {fvu:<15.4f} {'[GOOD]' if fvu < 0.1 else '[OK]' if fvu < 0.5 else '[BAD]'}")
+    print(f"{'MSE (均方误差)':<20} {mse:<15.6f}")
+
+    if top_features:
+        print(f"\n{'Top-10 最活跃特征':}")
+        print("-" * 60)
+        print(f"{'排名':<6} {'特征ID':<10} {'激活频率':<12} {'平均强度'}")
+        for i, (idx, freq, strength) in enumerate(zip(
+            top_features["feature_indices"],
+            top_features["activation_freqs"],
+            top_features["mean_activations"],
+        )):
+            print(f"#{i+1:<5} {idx:<10} {freq:<12.4f} {strength:.4f}")
+
+    print("\n" + "=" * 60)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="评估 SAE")
+    parser.add_argument("--checkpoint", type=str, help="训练好的 checkpoint 路径")
+    parser.add_argument("--pretrained", action="store_true", help="评估 Gemma Scope 预训练 SAE")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="配置文件")
+    parser.add_argument("--smoke-test", action="store_true", help="快速测试模式")
+    args = parser.parse_args()
+
+    device = get_device()
+
+    # ---- Smoke Test ----
+    if args.smoke_test:
+        print("\n[SMOKE TEST] 模式\n")
+
+        d_model, d_sae = 64, 512
+        sae = JumpReLUSAE(d_model=d_model, d_sae=d_sae)
+        torch.nn.init.xavier_uniform_(sae.W_enc.data)
+        torch.nn.init.xavier_uniform_(sae.W_dec.data)
+        sae.threshold.data = torch.ones(d_sae) * 0.1
+
+        fake_acts = torch.randn(500, d_model)
+        metrics = evaluate_on_activations(sae, fake_acts, device)
+        top_features = find_top_activating_features(sae, fake_acts, device)
+        print_evaluation_report(metrics, top_features)
+
+        print("\n[PASS] Smoke test 通过!")
+        return
+
+    # ---- 加载 checkpoint 评估 ----
+    if args.checkpoint:
+        print(f"\n[LOAD] 加载 checkpoint: {args.checkpoint}\n")
+        ckpt = load_checkpoint(args.checkpoint, device=device)
+        sae_config = ckpt["sae_config"]
+        sae = JumpReLUSAE(d_model=sae_config["d_model"], d_sae=sae_config["d_sae"])
+        load_checkpoint(args.checkpoint, sae=sae, device=device)
+
+        # 需要激活值来评估 — 用随机数据做演示
+        print("[WARN] 使用随机激活值进行评估 (正式评估请加载真实数据)")
+        fake_acts = torch.randn(1000, sae_config["d_model"])
+        metrics = evaluate_on_activations(sae, fake_acts, device)
+        top_features = find_top_activating_features(sae, fake_acts, device)
+        print_evaluation_report(metrics, top_features)
+        return
+
+    # ---- 加载预训练 SAE 评估 ----
+    if args.pretrained:
+        with open(args.config, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        from src.utils import load_sae_weights
+        params = load_sae_weights(
+            repo_id=config["pretrained_sae"]["repo_id"],
+            layer=config["pretrained_sae"]["layer"],
+            width=config["pretrained_sae"]["width"],
+            l0=config["pretrained_sae"]["l0"],
+        )
+        sae = JumpReLUSAE.from_pretrained(params)
+        print(f"\n[OK] 加载预训练 SAE: {sae}\n")
+
+        # 正式评估需要加载 Gemma 模型提取激活值
+        print("[WARN] 完整评估需要加载 Gemma 模型提取真实激活值")
+        print("   请在 A800 服务器上运行")
+        return
+
+    parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

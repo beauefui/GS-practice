@@ -1,0 +1,40 @@
+# Gemma 模型和 SAE 训练配置
+
+model:
+  # HuggingFace 模型名称 (必须是 base model, 不是 instruction-tuned)
+  name: "google/gemma-3-1b-pt"
+  # 要 hook 的层索引 (Gemma 3 1B 共 26 层, 0-25)
+  hook_layer: 22
+  # hook 点位: residual / mlp_output / attn_output
+  hook_point: "residual"
+  # 精度: float32 / bfloat16 (A800 建议 bfloat16 省显存)
+  dtype: "bfloat16"
+
+sae:
+  # 潜空间维度 (通常为 d_model 的 8-16 倍)
+  # Gemma 3 1B 的 d_model=1152, 所以 16x ≈ 18432
+  d_sae: 16384
+
+training:
+  lr: 3.0e-4
+  batch_size: 4096
+  num_steps: 50000
+  sparsity_coeff: 1.0e-3
+  log_every: 100
+  checkpoint_every: 5000
+  checkpoint_dir: "sae"
+  seed: 42
+
+data:
+  # 用于提取激活值的数据集
+  dataset: "monology/pile-uncopyrighted"
+  max_seq_len: 256
+  # 收集多少段文本的激活值
+  num_texts: 10000
+
+# ---- 预训练 SAE 推理配置 (加载 Gemma Scope 权重) ----
+pretrained_sae:
+  repo_id: "google/gemma-scope-2-1b-pt"
+  layer: 22
+  width: "65k"        # 16k / 65k / 262k / 1m
+  l0: "medium"        # small / medium / big

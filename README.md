@@ -33,21 +33,23 @@ Gemma Scope 使用 **JumpReLU** 激活函数替代标准 ReLU。JumpReLU 为每�
 
 ```
 GS-practice/
-├── README.md              # 本文件
-├── requirements.txt       # Python 依赖
-├── src/                   # 核心源代码
-│   ├── model.py           # JumpReLU SAE 模型定义
-│   ├── train.py           # 训练循环和损失函数
-│   ├── hooks.py           # 通过 forward hooks 提取激活值
-│   ├── metrics.py         # 评估指标 (L0, FVU, Delta Loss)
-│   └── utils.py           # 工具函数
-├── sae/                   # 保存的 SAE 权重和配置
-├── model/                 # 缓存的基座模型文件
-├── scripts/
-│   ├── train_sae.py       # 训练入口
-│   └── eval_sae.py        # 评估和可视化
-├── notebooks/             # Jupyter notebooks（用于探索实验）
-└── configs/               # 训练配置文件 (YAML)
+├── README.md                  # 本文件
+├── requirements.txt           # Python 依赖
+├── .gitignore                 # Git 忽略规则
+├── src/                       # 核心源代码
+│   ├── __init__.py
+│   ├── model.py               # JumpReLU SAE 模型定义 (encode/decode/forward)
+│   ├── hooks.py               # 通过 forward hooks 提取模型激活值
+│   ├── metrics.py             # 评估指标 (L0, FVU, MSE, Dead Features)
+│   ├── train.py               # 损失函数 + 训练循环 + 激活值收集
+│   └── utils.py               # 工具函数 (模型加载/权重下载/checkpoint)
+├── scripts/                   # 入口脚本
+│   ├── train_sae.py           # 训练入口 (CLI, 支持 --smoke-test)
+│   └── eval_sae.py            # 评估入口 (指标报告 + Top 特征分析)
+├── configs/                   # 训练配置文件
+│   └── default.yaml           # 默认超参配置
+├── sae/                       # 保存的 SAE 权重和 checkpoint
+└── model/                     # 缓存的基座模型文件
 ```
 
 ## 🔬 学习路线
@@ -72,7 +74,7 @@ GS-practice/
 
 ```bash
 # 克隆仓库
-git clone https://github.com/<your-username>/GS-practice.git
+git clone https://github.com/beauefui/GS-practice.git
 cd GS-practice
 
 # 创建虚拟环境（推荐）
@@ -93,6 +95,8 @@ pip install -r requirements.txt
 | `huggingface_hub` | 下载 SAE 权重 |
 | `safetensors` | 高效的权重序列化格式 |
 | `einops` | 张量运算 |
+| `pyyaml` | 配置文件解析 |
+| `datasets` | 加载训练数据集 |
 | `wandb` | 实验追踪（可选） |
 
 ## 📖 参考资料

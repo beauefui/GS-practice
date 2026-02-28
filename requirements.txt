@@ -15,5 +15,11 @@ numpy>=1.24.0
 # Experiment tracking (optional)
 # wandb>=0.16.0
 
+# Config
+pyyaml>=6.0
+
+# Data loading
+datasets>=2.16.0
+
 # Jupyter support
 ipykernel>=6.25.0
