@@ -60,59 +60,86 @@ GS-practice/
 - [ ] **阶段 4：评估** — 计算 L0、FVU 和 Delta Loss 指标
 - [ ] **阶段 5：可解释性实验** — 可视化 top-activating 特征，实验 Steering
 
-## 🔧 环境配置
-
-本项目在 Windows 本地开发，设计为可迁移至远程 **A800 GPU 服务器**。
-
-### 前置条件
+## 🔧 前置条件
 
 - Python 3.10+
 - CUDA 12.x（A800 GPU 训练）
 - ~16GB+ GPU 显存（用于 Gemma 模型 + SAE）
+- HuggingFace Token（下载 Gemma 模型需要）
 
-### 安装步骤（服务器端，使用 conda）
+## 🚀 完整使用流程
+
+### Step 0：环境搭建
 
 ```bash
-# 克隆仓库
 git clone https://github.com/beauefui/GS-practice.git
 cd GS-practice
-
-# 创建 conda 环境
 conda create -n gs python=3.10 -y
 conda activate gs
-
-# 安装 PyTorch (根据服务器 CUDA 版本选择)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
-
-# 安装其他依赖
 pip install -r requirements.txt
 ```
 
-### 下载模型权重（放到本地目录）
+### Step 1：下载模型权重
 
 ```bash
-# 使用 HuggingFace Token 下载 (Gemma 是 Gated Model, 需要先在网页上接受协议)
-# 将 <YOUR_HF_TOKEN> 替换为你的 token (hf_T...)
-
-# 1. 下载 Gemma 3 1B 基座模型 → model/gemma-3-1b-pt/
+# 下载 Gemma 3 1B 基座模型 (~2GB)
 huggingface-cli download google/gemma-3-1b-pt \
-    --local-dir model/gemma-3-1b-pt \
-    --token <YOUR_HF_TOKEN>
+    --local-dir model/gemma-3-1b-pt --token <YOUR_HF_TOKEN>
 
-# 2. 下载 Gemma Scope SAE 权重 → sae/gemma-scope-2-1b-pt/
-#    只下载需要的层和宽度 (完整仓库非常大):
+# 下载 Gemma Scope SAE 权重 (只下需要的层)
 huggingface-cli download google/gemma-scope-2-1b-pt \
     --include "resid_post/layer_22/width_65k_l0_medium/*" \
-    --local-dir sae/gemma-scope-2-1b-pt \
-    --token <YOUR_HF_TOKEN>
+    --local-dir sae/gemma-scope-2-1b-pt --token <YOUR_HF_TOKEN>
 ```
 
-### 快速验证
+**得到：** `model/gemma-3-1b-pt/` 和 `sae/gemma-scope-2-1b-pt/` 目录下有模型权重文件
+
+### Step 2：Smoke Test（验证代码能跑）
 
 ```bash
-# Smoke test — 不需要 GPU 和模型权重, 用随机数据验证代码流程
-python scripts/train_sae.py --config configs/default.yaml --smoke-test
+python scripts/train_sae.py --smoke-test
 python scripts/eval_sae.py --smoke-test
+```
+
+**得到：** 使用随机数据跑几步训练和评估，确认环境无问题。会看到 loss 下降 + 一份评估报告
+
+### Step 3：正式训练 SAE
+
+```bash
+python scripts/train_sae.py --config configs/default.yaml
+```
+
+**过程：**
+1. 加载 Gemma 3 1B 模型 → 提取第 22 层的激活值
+2. 释放 Gemma 显存 → 在激活值上训练 JumpReLU SAE（50000 步）
+3. 终端实时打印 `loss / L0 / FVU`，每 5000 步自动保存 checkpoint
+
+**得到：** `sae/checkpoints/checkpoint_step_5000.pt`, `..._10000.pt`, ..., `checkpoint_final.pt`
+
+### Step 4：评估训练结果
+
+```bash
+python scripts/eval_sae.py --checkpoint sae/checkpoints/checkpoint_final.pt
+```
+
+**得到：**
+- 终端打印评估报告（L0 稀疏度、FVU 重建质量、Top-10 活跃特征）
+- 自动生成 `sae/checkpoints/report_<时间戳>.md` 和 `.json` 文件
+
+### 调参
+
+编辑 `configs/default.yaml` 修改超参数：
+
+```yaml
+model:
+  hook_layer: 22        # 要 hook 的层 (0-25)
+sae:
+  d_sae: 16384          # SAE 宽度
+training:
+  num_steps: 50000      # 训练步数
+  sparsity_coeff: 1e-3  # 稀疏性强度 (越大越稀疏)
+  lr: 3e-4              # 学习率
 ```
 
 ## 📦 主要依赖
