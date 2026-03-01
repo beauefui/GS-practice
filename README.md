@@ -152,6 +152,77 @@ training:
   lr: 1e-4              # 学习率
 ```
 
+## 🔄 切换不同的 Gemma 模型和 SAE
+
+### 可用的模型和对应的 Gemma Scope
+
+每个 Gemma 基座模型都有对应的 Gemma Scope SAE 权重（`-pt` = 预训练版，`-it` = 指令微调版）：
+
+| Gemma 基座模型 | 对应 Gemma Scope | 层数 | d_model | 显存需求 |
+|---------------|-----------------|------|---------|---------|
+| `google/gemma-3-270m-pt` | `google/gemma-scope-2-270m-pt` | 18 | 1536 | ~2 GB |
+| `google/gemma-3-1b-pt` ← **当前** | `google/gemma-scope-2-1b-pt` | 26 | 1152 | ~4 GB |
+| `google/gemma-3-4b-pt` | `google/gemma-scope-2-4b-pt` | 34 | 2560 | ~10 GB |
+| `google/gemma-3-12b-pt` | `google/gemma-scope-2-12b-pt` | 48 | 3840 | ~28 GB |
+| `google/gemma-3-27b-pt` | `google/gemma-scope-2-27b-pt` | 62 | 4608 | ~60 GB |
+
+> 把 `-pt` 换成 `-it` 即可使用指令微调版本（如 `gemma-3-4b-it` + `gemma-scope-2-4b-it`）
+
+### 切换步骤
+
+**以切换到 4B 模型为例：**
+
+#### 1. 修改下载脚本 `scripts/download_weights.py`
+
+```python
+# 改 repo_id 和 local_dir
+snapshot_download(
+    repo_id="google/gemma-3-4b-pt",          # ← 改这里
+    local_dir="model/gemma-3-4b-pt",          # ← 改这里
+    token=args.token,
+)
+
+snapshot_download(
+    repo_id="google/gemma-scope-2-4b-pt",     # ← 改这里
+    local_dir="sae/gemma-scope-2-4b-pt",      # ← 改这里
+    allow_patterns=["resid_post/layer_20_width_65k_l0_medium/*"],  # ← 改层号
+    token=args.token,
+)
+```
+
+#### 2. 修改配置文件 `configs/default.yaml`
+
+```yaml
+model:
+  name: "model/gemma-3-4b-pt"     # ← 改模型路径
+  hook_layer: 20                   # ← 改层号 (通常选中间偏后的层)
+
+pretrained_sae:
+  repo_id: "google/gemma-scope-2-4b-pt"    # ← 改 scope 仓库
+  local_dir: "sae/gemma-scope-2-4b-pt"     # ← 改本地路径
+  layer: 20                                 # ← 和 hook_layer 一致
+  width: "65k"
+  l0: "medium"
+```
+
+#### 3. 重新下载并评估
+
+```bash
+python scripts/download_weights.py --token <YOUR_HF_TOKEN>
+CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py --pretrained
+```
+
+### SAE 变体选择
+
+每个层下有不同宽度和稀疏度的 SAE 可选，在 `allow_patterns` 和 `configs/default.yaml` 中修改：
+
+| 参数 | 可选值 | 说明 |
+|------|-------|------|
+| `width` | `16k`, `65k`, `262k`, `1m` | 特征数量，越大越细粒度 |
+| `l0` | `small`, `medium`, `big` | 目标稀疏度，small=更稀疏 |
+
+> 例如 `layer_15_width_262k_l0_small` 表示第 15 层、262k 特征、高稀疏度
+
 
 ## 📦 主要依赖
 
