@@ -168,7 +168,7 @@ def main():
         checkpoint_dir=config["training"]["checkpoint_dir"],
     )
 
-    history = train_sae(sae, activations, train_config, device=device)
+    history = train_sae(sae, activations.float(), train_config, device=device)
 
     print("\n[DONE] 训练完成!")
     print(f"最终 Loss: {history['total_loss'][-1]:.4f}")
