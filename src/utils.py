@@ -39,7 +39,7 @@ def get_device() -> torch.device:
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"[Device] 使用 GPU: {torch.cuda.get_device_name(0)}")
-        print(f"[Device] 显存: {torch.cuda.get_device_properties(0).total_mem / 1024**3:.1f} GB")
+        print(f"[Device] 显存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     else:
         device = torch.device("cpu")
         print("[Device] 使用 CPU (无可用 GPU)")
