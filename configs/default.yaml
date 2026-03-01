@@ -20,10 +20,10 @@ sae:
   d_sae: 16384
 
 training:
-  lr: 3.0e-4
+  lr: 1.0e-4
   batch_size: 4096
-  num_steps: 50000
-  sparsity_coeff: 1.0e-3
+  num_steps: 20000
+  sparsity_coeff: 0.01
   log_every: 100
   checkpoint_every: 5000
   checkpoint_dir: "sae/checkpoints"
@@ -32,9 +32,9 @@ training:
 data:
   # 用于提取激活值的数据集
   dataset: "monology/pile-uncopyrighted"
-  max_seq_len: 256
+  max_seq_len: 128
   # 收集多少段文本的激活值
-  num_texts: 10000
+  num_texts: 5000
 
 # ---- 预训练 SAE 推理配置 (加载 Gemma Scope 权重) ----
 pretrained_sae:
