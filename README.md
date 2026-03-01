@@ -107,8 +107,8 @@ python scripts/eval_sae.py --smoke-test
 > 直接加载 Google 花大量算力训练好的 SAE 权重，对 Gemma 模型进行分析。
 
 ```bash
-# 直接评估 Google 预训练 SAE（不需要 --checkpoint 参数）
-CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py
+# 直接评估 Google 预训练 SAE
+CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py --pretrained
 ```
 
 **过程：**
