@@ -283,9 +283,43 @@ def main():
         sae = JumpReLUSAE.from_pretrained(params)
         print(f"\n[OK] 加载预训练 SAE: {sae}\n")
 
-        # 正式评估需要加载 Gemma 模型提取激活值
-        print("[WARN] 完整评估需要加载 Gemma 模型提取真实激活值")
-        print("   请在 A800 服务器上运行")
+        # 加载 Gemma 模型, 提取真实激活值进行评估
+        from src.utils import load_gemma_model
+        from src.train import collect_activations
+
+        model_name = config["model"]["name"]
+        hook_layer = config["model"]["hook_layer"]
+        hook_point = config["model"].get("hook_point", "residual")
+        dtype_str = config["model"].get("dtype", "bfloat16")
+        dtype = torch.bfloat16 if dtype_str == "bfloat16" else torch.float32
+
+        print(f"\n[Phase 1] 加载 Gemma 模型: {model_name}")
+        model, tokenizer = load_gemma_model(model_name, device="auto", dtype=dtype)
+
+        # 收集少量激活值用于评估 (不需要太多)
+        print(f"[Phase 2] 收集第 {hook_layer} 层激活值...")
+        eval_texts = ["The quick brown fox jumps over the lazy dog.",
+                       "Machine learning is a subset of artificial intelligence.",
+                       "Neural networks consist of layers of interconnected nodes.",
+                       "Sparse autoencoders decompose activations into interpretable features.",
+                       "The transformer architecture revolutionized natural language processing."] * 20
+        activations = collect_activations(
+            model, tokenizer, eval_texts,
+            layer_idx=hook_layer, hook_point=hook_point,
+            max_seq_len=128, device=device,
+        ).float()
+
+        # 释放 Gemma 显存
+        del model
+        torch.cuda.empty_cache()
+        print("[Phase 2] Gemma 模型已释放\n")
+
+        # 评估
+        print("[Phase 3] 评估预训练 SAE...")
+        metrics = evaluate_on_activations(sae, activations, device)
+        top_features = find_top_activating_features(sae, activations, device)
+        print_evaluation_report(metrics, top_features)
+        save_report(metrics, top_features, save_dir="reports", source="pretrained-gemma-scope")
         return
 
     parser.print_help()
