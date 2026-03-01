@@ -233,70 +233,230 @@ CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py --pretrained
 |---|---|---|
 | **基座模型** | Gemma 3 (270M ~ 27B) | Llama 3.1 8B |
 | **SAE 架构** | JumpReLU (可学习阈值) | **TopK** (固定选 top-k 个特征) |
-| **权重来源** | Google 官方 HuggingFace | `fnlp/Llama-Scope` (OpenMOSS) |
+| **权重来源** | `google/gemma-scope-2-*` | `fnlp/Llama-Scope` |
 | **特征数量** | 16k / 65k / 262k / 1m | **32k (8x)** / 128k (32x) |
-| **框架** | 自定义代码即可 | 推荐使用 `lm-saes` 框架 |
 | **命名规则** | `layer_22_width_65k_l0_medium` | `L22R-8x` (层号+位置+倍率) |
 
-### Llama Scope 命名规则
+#### Llama Scope 命名规则
 
-`L[层号][位置]-[倍率]x`，例如：
+`L[层号][位置]-[倍率]x`：
 
-| 名称 | 含义 |
-|------|------|
-| `L15R-8x` | 第 15 层，post-MLP **R**esidual stream，8x 扩展 (32k 特征) |
-| `L15A-8x` | 第 15 层，**A**ttention output，8x 扩展 |
-| `L15M-8x` | 第 15 层，**M**LP output，8x 扩展 |
-| `L15R-32x` | 第 15 层，Residual，32x 扩展 (128k 特征，不推荐，死特征多) |
+| 位置代码 | 含义 | 对应 Gemma Scope |
+|---------|------|-----------------|
+| `R` | post-MLP **R**esidual stream | `resid_post` |
+| `A` | **A**ttention output | `attn_output` |
+| `M` | **M**LP output | `mlp_output` |
 
-### 使用方式
+> 例如 `L15R-8x` = 第 15 层的 Residual stream，8x 扩展 (32k 特征)
+> ⚠️ `32x` 的 SAE (128k 特征) 死特征较多，**推荐用 `8x` (32k 特征)**
 
-Llama Scope 推荐使用官方的 `lm-saes` 框架，而不是我们的自定义代码：
+---
+
+### 方法 A：使用 `lm-saes` 框架（推荐）
+
+> 这是 Llama Scope 官方推荐的方式，适合深入研究。
+
+#### Step 1：创建新环境并安装
 
 ```bash
+# 建议新建一个 conda 环境，避免与 Gemma Scope 依赖冲突
+conda create -n llama-scope python=3.10 -y
+conda activate llama-scope
+
+# 安装 PyTorch
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
 # 安装 lm-saes 框架
 pip install lm-saes==2.0.0b16
 ```
 
-基本用法参考 [lm-saes examples](https://github.com/OpenMOSS/Language-Model-SAEs/tree/main/examples)。
-
-### 如果要用我们的代码加载 Llama Scope 权重
-
-**需要修改的代码：**
-
-#### 1. `src/model.py` — 添加 TopK 激活函数
+#### Step 2：下载 Llama 模型和 SAE 权重
 
 ```python
-# Llama Scope 使用 TopK 而非 JumpReLU
-# TopK: 只保留前 k 个最大的激活值，其余置零
-def topk_activation(pre_acts, k=64):
-    topk_vals, topk_idx = pre_acts.topk(k, dim=-1)
-    acts = torch.zeros_like(pre_acts)
-    acts.scatter_(-1, topk_idx, topk_vals)
-    return acts
-```
-
-#### 2. `src/utils.py` — 修改权重加载路径
-
-```python
-# Llama Scope 权重下载
+# 新建一个脚本: scripts/download_llama_scope.py
 from huggingface_hub import snapshot_download
+
+# 1. 下载 Llama 3.1 8B 基座模型 (约 16GB)
+snapshot_download(
+    repo_id="meta-llama/Llama-3.1-8B",
+    local_dir="model/Llama-3.1-8B",
+    token="<YOUR_HF_TOKEN>",
+)
+
+# 2. 下载 Llama Scope SAE 权重 (只下需要的一个)
 snapshot_download(
     repo_id="fnlp/Llama-Scope",
-    allow_patterns=["L15R-8x/*"],  # 按需选择层和位置
+    allow_patterns=["L15R-8x/*"],   # 第15层 Residual 8x, 按需修改
     local_dir="sae/llama-scope",
+    token="<YOUR_HF_TOKEN>",
 )
 ```
 
-#### 3. `src/hooks.py` — 层访问路径不变
+```bash
+python scripts/download_llama_scope.py
+```
 
-Llama 和 Gemma 模型结构类似，都是 `model.model.layers[i]`，**hooks 代码不需要改**。
+#### Step 3：使用 lm-saes 加载和评估
+
+```python
+# 新建一个脚本: scripts/eval_llama_scope.py
+from lm_saes import SparseAutoEncoder
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+# 加载 Llama 模型
+model = AutoModelForCausalLM.from_pretrained(
+    "model/Llama-3.1-8B",
+    dtype=torch.bfloat16,
+    device_map="auto",
+)
+tokenizer = AutoTokenizer.from_pretrained("model/Llama-3.1-8B")
+
+# 加载 Llama Scope SAE
+sae = SparseAutoEncoder.from_pretrained("sae/llama-scope/L15R-8x")
+sae = sae.to("cuda")
+
+print(f"SAE 加载完成: {sae}")
+print(f"  d_model: {sae.d_model}")
+print(f"  d_sae:   {sae.d_sae}")
+
+# 提取激活值并通过 SAE 编码
+text = "The quick brown fox jumps over the lazy dog."
+inputs = tokenizer(text, return_tensors="pt").to("cuda")
+
+with torch.no_grad():
+    outputs = model(**inputs, output_hidden_states=True)
+    # 第 15 层的 hidden states (0-indexed, +1 因为包含 embedding 层)
+    activations = outputs.hidden_states[16].float()  # (1, seq_len, d_model)
+
+    # 通过 SAE 编码/解码
+    acts = activations.reshape(-1, activations.shape[-1])  # (seq_len, d_model)
+    encoded = sae.encode(acts)
+    decoded = sae.decode(encoded)
+
+    # 计算指标
+    l0 = (encoded > 0).float().sum(dim=-1).mean().item()
+    fvu = ((acts - decoded).pow(2).sum() / acts.pow(2).sum()).item()
+
+print(f"\n评估结果:")
+print(f"  L0 (稀疏度): {l0:.1f}")
+print(f"  FVU (重建误差): {fvu:.4f}")
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/eval_llama_scope.py
+```
+
+---
+
+### 方法 B：改造我们的代码（学习用）
+
+> 如果你想用本项目的代码框架来加载 Llama Scope，需要做以下修改。
+
+#### Step 1. `src/model.py` — 新增 TopKSAE 类
+
+在 `JumpReLUSAE` 类下面添加一个新的 SAE 类：
+
+```python
+class TopKSAE(nn.Module):
+    """TopK SAE (Llama Scope 使用的架构)
+
+    与 JumpReLU 的区别:
+      - JumpReLU: 每个特征有可学习阈值, 低于阈值的置零
+      - TopK: 固定选前 k 个最大的特征, 其余置零 (k 是超参数, 不可学)
+    """
+    def __init__(self, d_model: int, d_sae: int, k: int = 64):
+        super().__init__()
+        self.d_model = d_model
+        self.d_sae = d_sae
+        self.k = k
+
+        self.W_enc = nn.Parameter(torch.empty(d_model, d_sae))
+        self.b_enc = nn.Parameter(torch.zeros(d_sae))
+        self.W_dec = nn.Parameter(torch.empty(d_sae, d_model))
+        self.b_dec = nn.Parameter(torch.zeros(d_model))
+
+    def encode(self, x):
+        pre_acts = x @ self.W_enc + self.b_enc
+        # TopK: 只保留前 k 个最大值
+        topk_vals, topk_idx = pre_acts.topk(self.k, dim=-1)
+        acts = torch.zeros_like(pre_acts)
+        acts.scatter_(-1, topk_idx, topk_vals)
+        return acts
+
+    def decode(self, acts):
+        return acts @ self.W_dec + self.b_dec
+
+    def forward(self, x):
+        acts = self.encode(x)
+        recon = self.decode(acts)
+        return recon, acts
+```
+
+#### Step 2. `scripts/download_weights.py` — 添加 Llama 下载
+
+在 `main()` 中添加 Llama 的下载逻辑（或新建脚本）：
+
+```python
+# 下载 Llama 3.1 8B
+snapshot_download(
+    repo_id="meta-llama/Llama-3.1-8B",
+    local_dir="model/Llama-3.1-8B",
+    token=args.token,
+)
+
+# 下载 Llama Scope SAE
+snapshot_download(
+    repo_id="fnlp/Llama-Scope",
+    allow_patterns=["L15R-8x/*"],
+    local_dir="sae/llama-scope",
+    token=args.token,
+)
+```
+
+#### Step 3. `src/utils.py` — 添加 Llama Scope 权重加载函数
+
+```python
+def load_llama_scope_weights(
+    local_dir: str = "sae/llama-scope",
+    sae_name: str = "L15R-8x",
+) -> dict:
+    """加载 Llama Scope SAE 权重"""
+    from safetensors.torch import load_file
+    path = Path(local_dir) / sae_name / "model.safetensors"
+    if not path.exists():
+        raise FileNotFoundError(f"权重文件不存在: {path}")
+    params = load_file(str(path))
+    print(f"[Llama Scope] 加载完成: {sae_name}")
+    for k, v in params.items():
+        print(f"  {k}: {v.shape}")
+    return params
+```
+
+#### Step 4. `src/hooks.py` — 不需要改
+
+Llama 和 Gemma 结构相同，都是 `model.model.layers[i]`，hooks 代码**完全通用**。
+
+#### Step 5. `configs/default.yaml` — 改配置
+
+```yaml
+model:
+  name: "model/Llama-3.1-8B"
+  hook_layer: 15
+  dtype: "bfloat16"
+
+pretrained_sae:
+  local_dir: "sae/llama-scope"
+  sae_name: "L15R-8x"
+```
+
+---
 
 ### 对照参考
 
 | 来源 | 链接 |
 |------|------|
-| **Llama Scope 论文** | [Llama Scope: Extracting Millions of Features from Llama-3.1-8B](https://arxiv.org/abs/2410.20526) |
+| **Llama Scope 论文** | [arxiv.org/abs/2410.20526](https://arxiv.org/abs/2410.20526) |
 | **训练框架** | [github.com/OpenMOSS/Language-Model-SAEs](https://github.com/OpenMOSS/Language-Model-SAEs) |
 | **预训练权重** | [huggingface.co/fnlp/Llama-Scope](https://huggingface.co/fnlp/Llama-Scope) |
 
