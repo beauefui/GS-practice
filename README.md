@@ -223,6 +223,83 @@ CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py --pretrained
 
 > 例如 `layer_15_width_262k_l0_small` 表示第 15 层、262k 特征、高稀疏度
 
+## 🦙 拓展：从 Gemma Scope 到 Llama Scope
+
+[Llama Scope](https://github.com/OpenMOSS/Language-Model-SAEs) 是 OpenMOSS 团队为 **Llama-3.1-8B** 训练的 SAE 套件，提供了所有层和子层的 256 个 TopK SAE。
+
+### Gemma Scope vs Llama Scope 核心区别
+
+| | Gemma Scope | Llama Scope |
+|---|---|---|
+| **基座模型** | Gemma 3 (270M ~ 27B) | Llama 3.1 8B |
+| **SAE 架构** | JumpReLU (可学习阈值) | **TopK** (固定选 top-k 个特征) |
+| **权重来源** | Google 官方 HuggingFace | `fnlp/Llama-Scope` (OpenMOSS) |
+| **特征数量** | 16k / 65k / 262k / 1m | **32k (8x)** / 128k (32x) |
+| **框架** | 自定义代码即可 | 推荐使用 `lm-saes` 框架 |
+| **命名规则** | `layer_22_width_65k_l0_medium` | `L22R-8x` (层号+位置+倍率) |
+
+### Llama Scope 命名规则
+
+`L[层号][位置]-[倍率]x`，例如：
+
+| 名称 | 含义 |
+|------|------|
+| `L15R-8x` | 第 15 层，post-MLP **R**esidual stream，8x 扩展 (32k 特征) |
+| `L15A-8x` | 第 15 层，**A**ttention output，8x 扩展 |
+| `L15M-8x` | 第 15 层，**M**LP output，8x 扩展 |
+| `L15R-32x` | 第 15 层，Residual，32x 扩展 (128k 特征，不推荐，死特征多) |
+
+### 使用方式
+
+Llama Scope 推荐使用官方的 `lm-saes` 框架，而不是我们的自定义代码：
+
+```bash
+# 安装 lm-saes 框架
+pip install lm-saes==2.0.0b16
+```
+
+基本用法参考 [lm-saes examples](https://github.com/OpenMOSS/Language-Model-SAEs/tree/main/examples)。
+
+### 如果要用我们的代码加载 Llama Scope 权重
+
+**需要修改的代码：**
+
+#### 1. `src/model.py` — 添加 TopK 激活函数
+
+```python
+# Llama Scope 使用 TopK 而非 JumpReLU
+# TopK: 只保留前 k 个最大的激活值，其余置零
+def topk_activation(pre_acts, k=64):
+    topk_vals, topk_idx = pre_acts.topk(k, dim=-1)
+    acts = torch.zeros_like(pre_acts)
+    acts.scatter_(-1, topk_idx, topk_vals)
+    return acts
+```
+
+#### 2. `src/utils.py` — 修改权重加载路径
+
+```python
+# Llama Scope 权重下载
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="fnlp/Llama-Scope",
+    allow_patterns=["L15R-8x/*"],  # 按需选择层和位置
+    local_dir="sae/llama-scope",
+)
+```
+
+#### 3. `src/hooks.py` — 层访问路径不变
+
+Llama 和 Gemma 模型结构类似，都是 `model.model.layers[i]`，**hooks 代码不需要改**。
+
+### 对照参考
+
+| 来源 | 链接 |
+|------|------|
+| **Llama Scope 论文** | [Llama Scope: Extracting Millions of Features from Llama-3.1-8B](https://arxiv.org/abs/2410.20526) |
+| **训练框架** | [github.com/OpenMOSS/Language-Model-SAEs](https://github.com/OpenMOSS/Language-Model-SAEs) |
+| **预训练权重** | [huggingface.co/fnlp/Llama-Scope](https://huggingface.co/fnlp/Llama-Scope) |
+
 
 ## 📦 主要依赖
 
