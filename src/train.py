@@ -307,9 +307,10 @@ def train_sae(
     # 保存最终 checkpoint
     from src.utils import save_checkpoint
     with torch.no_grad():
-        final_recon, final_acts = sae(batch)
+        eval_batch = activations[:config.batch_size].to(device)
+        final_recon, final_acts = sae(eval_batch)
         final_l0 = compute_l0(final_acts)
-        final_fvu = compute_fvu(batch, final_recon)
+        final_fvu = compute_fvu(eval_batch, final_recon)
 
     save_checkpoint(
         sae=sae,
