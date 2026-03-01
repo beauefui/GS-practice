@@ -84,7 +84,7 @@ def load_gemma_model(
     # 加载模型, 关闭梯度 (我们只需要提取激活值, 不训练基座模型)
     model = AutoModelForCausalLM.from_pretrained(
         str(model_name_or_path),
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map=device,
     )
     model.eval()
