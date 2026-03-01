@@ -80,50 +80,66 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
-### Step 1：下载模型权重
+### Step 1：下载权重
 
 ```bash
 # 将 <YOUR_HF_TOKEN> 替换为你的 token
+# 下载 Gemma 模型 + Google 预训练 SAE 权重
 python scripts/download_weights.py --token <YOUR_HF_TOKEN>
 ```
 
-**得到：** `model/gemma-3-1b-pt/` 和 `sae/gemma-scope-2-1b-pt/` 目录下有模型权重文件
+**得到：** `model/gemma-3-1b-pt/` (Gemma 基座模型) 和 `sae/gemma-scope-2-1b-pt/` (Google 预训练 SAE 权重)
 
-### Step 2：Smoke Test（验证代码能跑）
+### Step 2：Smoke Test（验证环境）
 
 ```bash
 python scripts/train_sae.py --smoke-test
 python scripts/eval_sae.py --smoke-test
 ```
 
-**得到：** 使用随机数据跑几步训练和评估，确认环境无问题。会看到 loss 下降 + 一份评估报告
+**得到：** 使用随机数据跑几步训练和评估，确认环境无问题
 
-### Step 3：正式训练 SAE
+---
+
+### 🅰️ 主路线：使用 Google 预训练 SAE 评估（推荐）
+
+> 这是与 [Colab 教程](https://colab.research.google.com/drive/1NhWjg7n0nhfW--CjtsOdw5A5J_-Bzn4r) 对齐的用法。
+> 直接加载 Google 花大量算力训练好的 SAE 权重，对 Gemma 模型进行分析。
 
 ```bash
-python scripts/train_sae.py --config configs/default.yaml
+# 直接评估 Google 预训练 SAE（不需要 --checkpoint 参数）
+CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py
 ```
 
 **过程：**
-1. 加载 Gemma 3 1B 模型 → 提取第 22 层的激活值
-2. 释放 Gemma 显存 → 在激活值上训练 JumpReLU SAE（50000 步）
-3. 终端实时打印 `loss / L0 / FVU`，每 5000 步自动保存 checkpoint
-
-**得到：** `sae/checkpoints/checkpoint_step_5000.pt`, `..._10000.pt`, ..., `checkpoint_final.pt`
-
-### Step 4：评估训练结果
-
-```bash
-python scripts/eval_sae.py --checkpoint sae/checkpoints/checkpoint_final.pt
-```
+1. 加载 Gemma 模型 + Google 预训练 SAE 权重 (`sae/gemma-scope-2-1b-pt/`)
+2. 提取激活值 → 通过 SAE 编码/解码 → 计算评估指标
 
 **得到：**
 - 终端打印评估报告（L0 稀疏度、FVU 重建质量、Top-10 活跃特征）
-- 自动生成 `sae/checkpoints/report_<时间戳>.md` 和 `.json` 文件
+- 自动生成 `reports/report_<时间戳>.md` 和 `.json` 报告文件
+- 预期效果：**L0 ≈ 70, FVU ≈ 2-3%**（与 Colab 教程一致）
 
-### 调参
+---
 
-编辑 `configs/default.yaml` 修改超参数：
+### 🅱️ 可选路线：从零训练 SAE（学习用）
+
+> 这条路线是为了**理解 SAE 训练过程**，效果远不如 Google 预训练版本，
+> 但对学习 SAE 的工作原理非常有帮助。
+
+**训练：**
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_sae.py --config configs/default.yaml
+```
+
+**评估自训练的 checkpoint：**
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/eval_sae.py --checkpoint sae/checkpoints/checkpoint_final.pt
+```
+
+**调参（编辑 `configs/default.yaml`）：**
 
 ```yaml
 model:
@@ -131,10 +147,11 @@ model:
 sae:
   d_sae: 16384          # SAE 宽度
 training:
-  num_steps: 50000      # 训练步数
-  sparsity_coeff: 1e-3  # 稀疏性强度 (越大越稀疏)
-  lr: 3e-4              # 学习率
+  num_steps: 20000      # 训练步数
+  sparsity_coeff: 0.01  # 稀疏性强度 (越大越稀疏)
+  lr: 1e-4              # 学习率
 ```
+
 
 ## 📦 主要依赖
 
